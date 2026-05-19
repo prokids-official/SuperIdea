@@ -1374,7 +1374,10 @@ function RadarPage({
   const [languageFilter, setLanguageFilter] = useState<'all' | 'zh' | 'en'>('all')
   const [strictAiOnly, setStrictAiOnly] = useState(true)
   const [minOpportunity, setMinOpportunity] = useState(50)
+  const [resultPage, setResultPage] = useState(1)
+  const [showAllResults, setShowAllResults] = useState(false)
   const { loading, error, results, sourceStatus, progress, searchPlan, insight } = radarState
+  const resultPageSize = 6
 
   const selectedApis = useMemo(() => {
     return platformDefs.filter((item) => platforms[item.id]).map((item) => item.api)
@@ -1388,10 +1391,21 @@ function RadarPage({
       return true
     })
   }, [languageFilter, minOpportunity, results, strictAiOnly])
+  const totalResultPages = Math.max(1, Math.ceil(filteredResults.length / resultPageSize))
+  const safeResultPage = Math.min(resultPage, totalResultPages)
+  const visibleResults = showAllResults
+    ? filteredResults
+    : filteredResults.slice((safeResultPage - 1) * resultPageSize, safeResultPage * resultPageSize)
   const radarInsight = insight ?? buildLocalRadarInsight(results)
+
+  useEffect(() => {
+    setResultPage(1)
+  }, [languageFilter, minOpportunity, strictAiOnly, results])
 
   const runSearch = async () => {
     const startedAt = Date.now()
+    setResultPage(1)
+    setShowAllResults(false)
     setRadarState((current) => ({
       ...current,
       loading: true,
@@ -1408,10 +1422,10 @@ function RadarPage({
         platforms: Array.from(new Set(selectedApis)),
         sort,
         timeRange: range,
-        limit: 12,
+        limit: 24,
         includeAiBrief: true,
-        fetchTop: 3,
-        aiBriefTop: 5,
+        fetchTop: 4,
+        aiBriefTop: 6,
         briefMode: 'auto',
       })
       setRadarState((current) => ({
@@ -1632,9 +1646,26 @@ function RadarPage({
           </div>
 
           <div className="result-list zl-stagger">
+            {!loading && filteredResults.length > 0 && (
+              <div className="result-count-bar">
+                <div>
+                  <strong>搜索结果</strong>
+                  <span>
+                    {showAllResults
+                      ? `正在显示全部 ${filteredResults.length} 条`
+                      : `正在显示 ${(safeResultPage - 1) * resultPageSize + 1}-${Math.min(safeResultPage * resultPageSize, filteredResults.length)} / 共 ${
+                          filteredResults.length
+                        } 条`}
+                  </span>
+                </div>
+                <button className="zl-btn ghost sm" type="button" onClick={() => setShowAllResults(!showAllResults)}>
+                  {showAllResults ? '分页查看' : '显示全部'}
+                </button>
+              </div>
+            )}
             {loading
               ? [0, 1, 2].map((item) => <ResultSkeleton key={item} />)
-              : filteredResults.map((result) => (
+              : visibleResults.map((result) => (
                   <ResultCard
                     key={result.id}
                     result={result}
@@ -1647,6 +1678,25 @@ function RadarPage({
                 <Sparkles size={18} />
                 <strong>没有结果通过当前 AI 严格筛选</strong>
                 <p>可以把机会分阈值调低，或改成 30 天范围；但主结果仍会优先保证“AI 制作 + 动画/短剧/故事”相关。</p>
+              </div>
+            )}
+            {!loading && !showAllResults && filteredResults.length > resultPageSize && (
+              <div className="result-pager">
+                <button className="zl-btn ghost sm" type="button" disabled={safeResultPage <= 1} onClick={() => setResultPage((page) => Math.max(1, page - 1))}>
+                  上一页
+                </button>
+                <span>
+                  第 <b>{safeResultPage}</b> / {totalResultPages} 页
+                </span>
+                <button
+                  className="zl-btn primary sm"
+                  type="button"
+                  disabled={safeResultPage >= totalResultPages}
+                  onClick={() => setResultPage((page) => Math.min(totalResultPages, page + 1))}
+                >
+                  下一页
+                  <ChevronRight size={12} />
+                </button>
               </div>
             )}
           </div>
