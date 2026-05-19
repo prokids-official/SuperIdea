@@ -1781,6 +1781,7 @@ function TermGroup({ title, terms, muted = false }: { title: string; terms: stri
 function TrackingPage() {
   const [accounts, setAccounts] = useState<TrackedAccount[]>([])
   const [videos, setVideos] = useState<TrackedVideo[]>([])
+  const [recentVideos, setRecentVideos] = useState<TrackedVideo[]>([])
   const [windowDays, setWindowDays] = useState<7 | 30>(7)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1791,10 +1792,11 @@ function TrackingPage() {
       setLoading(true)
       setError('')
       try {
-        const [nextAccounts, nextVideos] = await Promise.all([listTrackedAccounts(), listTrackedVideos(windowDays)])
+        const [nextAccounts, nextVideos, nextRecentVideos] = await Promise.all([listTrackedAccounts(), listTrackedVideos(windowDays), listTrackedVideos(30)])
         if (!cancelled) {
           setAccounts(nextAccounts)
           setVideos(nextVideos)
+          setRecentVideos(nextRecentVideos)
         }
       } catch (trackingError) {
         if (!cancelled) setError(trackingError instanceof Error ? trackingError.message : '账号追踪读取失败')
@@ -1820,6 +1822,33 @@ function TrackingPage() {
     .filter(Boolean)
     .sort()
     .at(-1)
+  const latestThreeDays = useMemo(() => {
+    return recentVideos
+      .filter((video) => isWithinDays(video.publishedAt || video.firstSeenAt || video.lastSeenAt, 3))
+      .sort((a, b) => videoTimestamp(b) - videoTimestamp(a))
+      .slice(0, 18)
+  }, [recentVideos])
+  const freshAccountStats = useMemo(() => {
+    const stats = new Map<string, { count: number; hotScore: number; platform: string }>()
+    latestThreeDays.forEach((video) => {
+      const current = stats.get(video.accountName) ?? { count: 0, hotScore: 0, platform: video.platform }
+      stats.set(video.accountName, {
+        count: current.count + 1,
+        hotScore: current.hotScore + video.hotScore,
+        platform: current.platform,
+      })
+    })
+    return Array.from(stats.entries())
+      .map(([name, stat]) => ({ name, ...stat }))
+      .sort((a, b) => b.count - a.count || b.hotScore - a.hotScore)
+      .slice(0, 5)
+  }, [latestThreeDays])
+  const platformPulse = useMemo(() => {
+    return latestThreeDays.reduce<Record<string, number>>((acc, video) => {
+      acc[video.platform] = (acc[video.platform] ?? 0) + 1
+      return acc
+    }, {})
+  }, [latestThreeDays])
   const topVideos = videos.slice(0, 30)
 
   return (
@@ -1840,7 +1869,101 @@ function TrackingPage() {
       <section className="tracking-kpis">
         <StatCard label="固定账号" value={String(accounts.length || 17)} detail="YouTube / TikTok / 抖音" />
         <StatCard label="已同步账号" value={String(checkedCount)} detail={lastCheckedAt ? `最近 ${formatRelativeTime(lastCheckedAt)}` : '等待 worker 首次同步'} />
+        <StatCard label="3 天新片" value={String(latestThreeDays.length)} detail={freshAccountStats[0] ? `${freshAccountStats[0].name} 更新最活跃` : '等待最新发布'} />
         <StatCard label={`${windowDays} 天内容`} value={String(videos.length)} detail="按热度分数重排" />
+      </section>
+
+      <section className="zl-card tracking-fresh">
+        <header>
+          <div>
+            <p className="overline">LAST 3 DAYS</p>
+            <h2>三日新片速览</h2>
+            <span>先看最近更新，再决定是否点进账号或拆解单条视频。</span>
+          </div>
+          <div className="fresh-pulse">
+            {Object.entries(platformPulse).map(([platform, count]) => (
+              <span key={platform} className={`zl-pf ${platform}`}>
+                <span className="blob" />
+                {platformLabel(platform)}
+                <b>{count}</b>
+              </span>
+            ))}
+            {!Object.keys(platformPulse).length && <small>等待 worker 更新</small>}
+          </div>
+        </header>
+        {freshAccountStats.length > 0 && (
+          <div className="fresh-account-strip">
+            {freshAccountStats.map((item) => (
+              <div key={item.name}>
+                <span className={`zl-pf ${item.platform}`}>
+                  <span className="blob" />
+                  {item.name}
+                </span>
+                <strong>{item.count}</strong>
+                <small>条新内容</small>
+              </div>
+            ))}
+          </div>
+        )}
+        {latestThreeDays.length ? (
+          <div className="fresh-table-wrap">
+            <table className="fresh-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>平台</th>
+                  <th>账号</th>
+                  <th>最新发布</th>
+                  <th>发布时间</th>
+                  <th>热度</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {latestThreeDays.map((video, index) => (
+                  <tr key={video.id}>
+                    <td>
+                      <span className="fresh-rank">{index + 1}</span>
+                    </td>
+                    <td>
+                      <span className={`zl-pf ${video.platform}`}>
+                        <span className="blob" />
+                        {platformLabel(video.platform)}
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{video.accountName}</strong>
+                    </td>
+                    <td>
+                      <a href={video.url} target="_blank" rel="noreferrer">
+                        {video.title}
+                      </a>
+                    </td>
+                    <td>
+                      <span>{formatShortDateTime(video.publishedAt || video.firstSeenAt || video.lastSeenAt)}</span>
+                    </td>
+                    <td>
+                      <div className="fresh-hot">
+                        <b style={{ width: `${Math.min(100, Math.max(8, Math.log10(Math.max(10, video.hotScore)) * 18))}%` }} />
+                        <em>{formatCount(video.hotScore)}</em>
+                      </div>
+                    </td>
+                    <td>
+                      <a className="zl-icon-btn" href={video.url} target="_blank" rel="noreferrer" aria-label="打开视频">
+                        <ArrowUpRight size={14} />
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="fresh-empty">
+            <CalendarDays size={18} />
+            <span>近 3 天暂时没有已识别的新发布，worker 下次同步后会自动出现。</span>
+          </div>
+        )}
       </section>
 
       <div className="tracking-layout">
@@ -1982,6 +2105,29 @@ function TrackedVideoCard({ video, rank }: { video: TrackedVideo; rank: number }
 
 function platformLabel(platform: string): string {
   return platformDefs.find((item) => item.id === platform || item.api === platform)?.name ?? platform
+}
+
+function videoTimestamp(video: TrackedVideo): number {
+  return new Date(video.publishedAt || video.firstSeenAt || video.lastSeenAt || 0).getTime() || 0
+}
+
+function isWithinDays(value: string | undefined, days: number): boolean {
+  if (!value) return false
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return false
+  return Date.now() - timestamp <= days * 24 * 60 * 60 * 1000
+}
+
+function formatShortDateTime(value?: string): string {
+  if (!value) return '未知'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知'
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function DailyPage() {
