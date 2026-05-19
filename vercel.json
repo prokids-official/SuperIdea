@@ -1,0 +1,6 @@
+{
+  "framework": "vite",
+  "installCommand": "cd zhilan-app && npm install",
+  "buildCommand": "cd zhilan-app && npm run build",
+  "outputDirectory": "zhilan-app/dist"
+}
