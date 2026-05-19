@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import os
 from datetime import UTC, datetime
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -31,40 +32,65 @@ class SupabaseWorker:
     async def run(self, once: bool = False, interval: float = 2.5) -> None:
         async with httpx.AsyncClient(timeout=90, trust_env=False) as client:
             while True:
-                job = await self.next_job(client)
+                try:
+                    job = await self.next_job(client)
+                except Exception as exc:
+                    print(f"Worker poll failed: {exc.__class__.__name__}: {exc}", flush=True)
+                    if once:
+                        raise
+                    await asyncio.sleep(interval)
+                    continue
+
                 if job:
                     await self.process_job(client, job)
                     if once:
                         return
                 elif once:
-                    print("No queued search jobs.")
+                    print("No queued search jobs.", flush=True)
                     return
                 else:
                     await asyncio.sleep(interval)
 
     async def next_job(self, client: httpx.AsyncClient) -> dict[str, Any] | None:
+        job = await self.find_job(client, status="queued")
+        if job:
+            await self.update_job(client, job["id"], {"status": "processing", "updated_at": now_iso()})
+            return job
+
+        stale_before = (datetime.now(UTC) - timedelta(minutes=15)).isoformat()
+        stale_job = await self.find_job(client, status="processing", updated_before=stale_before)
+        if stale_job:
+            await self.update_job(client, stale_job["id"], {"status": "processing", "updated_at": now_iso(), "error": None})
+            print(f"Reclaimed stale search job {stale_job['id']}", flush=True)
+            return stale_job
+
+        return None
+
+    async def find_job(self, client: httpx.AsyncClient, status: str, updated_before: str | None = None) -> dict[str, Any] | None:
+        params = {
+            "select": "*",
+            "status": f"eq.{status}",
+            "order": "created_at.asc",
+            "limit": "1",
+        }
+        if updated_before:
+            params["updated_at"] = f"lt.{updated_before}"
+
         response = await client.get(
             f"{self.supabase_url}/rest/v1/content_search_jobs",
             headers=self.headers,
-            params={
-                "select": "*",
-                "status": "eq.queued",
-                "order": "created_at.asc",
-                "limit": "1",
-            },
+            params=params,
         )
         response.raise_for_status()
         jobs = response.json()
         if not jobs:
             return None
 
-        job = jobs[0]
-        await self.update_job(client, job["id"], {"status": "processing", "updated_at": now_iso()})
-        return job
+        return jobs[0]
 
     async def process_job(self, client: httpx.AsyncClient, job: dict[str, Any]) -> None:
         job_id = job["id"]
-        print(f"Processing search job {job_id}: {job['query']}")
+        print(f"Processing search job {job_id}: {job['query']}", flush=True)
         try:
             search_response = await client.post(
                 f"{self.scraper_url}/api/search",
@@ -103,7 +129,7 @@ class SupabaseWorker:
                     "finished_at": now_iso(),
                 },
             )
-            print(f"Finished search job {job_id}: {len(rows)} results")
+            print(f"Finished search job {job_id}: {len(rows)} results", flush=True)
         except Exception as exc:
             await self.update_job(
                 client,
@@ -115,7 +141,7 @@ class SupabaseWorker:
                     "finished_at": now_iso(),
                 },
             )
-            print(f"Failed search job {job_id}: {exc}")
+            print(f"Failed search job {job_id}: {exc}", flush=True)
 
     async def update_job(self, client: httpx.AsyncClient, job_id: str, payload: dict[str, Any]) -> None:
         response = await client.patch(
