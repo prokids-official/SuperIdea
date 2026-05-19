@@ -70,18 +70,23 @@ export async function signup(email: string, password: string): Promise<User> {
     throw new Error('当前未连接 Supabase，暂时不能创建新账号')
   }
 
-  const { data, error } = await supabase.auth.signUp({ email, password })
+  const normalizedEmail = email.trim().toLowerCase()
+  const { data, error } = await supabase.auth.signUp({ email: normalizedEmail, password })
   if (error || !data.user) throw new Error(error?.message || '注册失败')
 
   if (!data.session) {
-    throw new Error('账号已创建，请先完成邮箱确认后再登录')
+    const signIn = await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
+    if (signIn.data.user) {
+      return ensureProfile(signIn.data.user.id, signIn.data.user.email || normalizedEmail)
+    }
+    throw new Error('账号已创建，但 Supabase 仍开启邮箱确认。请先在 Supabase Auth 里关闭 Confirm email，再重新注册或登录。')
   }
 
-  return ensureProfile(data.user.id, data.user.email || email)
+  return ensureProfile(data.user.id, data.user.email || normalizedEmail)
 }
 
 export function isSelfServiceSignupEmail(email: string): boolean {
-  return email.trim().toLowerCase().endsWith('@beva.com') || email.trim().toLowerCase() === 'loy27felix@gmail.com'
+  return Boolean(email.trim())
 }
 
 export async function getCurrentUser(): Promise<User | null> {

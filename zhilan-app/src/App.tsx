@@ -578,11 +578,11 @@ function LoginScreen({
         >
           <div className="login-form-head">
             <p className="overline">{mode === 'signup' ? 'CREATE ACCOUNT' : 'WELCOME BACK'}</p>
-            <h2>{mode === 'signup' ? '创建内部账号' : '进入工作台'}</h2>
+            <h2>{mode === 'signup' ? '创建账号' : '进入工作台'}</h2>
           </div>
           <label>
             账号
-            <input value={email} placeholder="name@company.com" type="email" onChange={(event) => setEmail(event.target.value)} />
+            <input value={email} placeholder="name@example.com" type="email" onChange={(event) => setEmail(event.target.value)} />
           </label>
           <label>
             密码
@@ -1991,12 +1991,12 @@ function AdminPage() {
       <header className="ideas-head">
         <div>
           <h1>账号管理</h1>
-          <p>默认只允许 @beva.com 邮箱注册。管理员可以把外部邮箱加入白名单。</p>
+          <p>当前开放邮箱注册。白名单功能先保留，后续需要邀请制时可以重新启用。</p>
         </div>
       </header>
       <section className="admin-grid">
         <article className="zl-card admin-card">
-          <h3>添加可注册邮箱</h3>
+          <h3>预留白名单</h3>
           <label>
             邮箱
             <input value={email} placeholder="name@example.com" type="email" onChange={(event) => setEmail(event.target.value)} />
@@ -2015,8 +2015,8 @@ function AdminPage() {
           <h3>注册规则</h3>
           <div className="admin-rule-list">
             <p>
-              <b>自动允许</b>
-              @beva.com 邮箱
+              <b>当前策略</b>
+              任意邮箱可注册
             </p>
             <p>
               <b>管理员</b>
@@ -2024,14 +2024,14 @@ function AdminPage() {
             </p>
             <p>
               <b>白名单</b>
-              管理员手动添加的邮箱
+              预留给以后收紧注册
             </p>
           </div>
         </article>
       </section>
       <section className="zl-card allowlist-card">
         <header>
-          <h3>白名单邮箱</h3>
+          <h3>预留邮箱名单</h3>
           <button className="zl-btn ghost sm" type="button" onClick={() => refresh()}>
             刷新
           </button>
@@ -2046,7 +2046,7 @@ function AdminPage() {
               </button>
             </div>
           ))}
-          {!entries.length && <p className="muted">暂无额外白名单。@beva.com 邮箱不需要添加。</p>}
+          {!entries.length && <p className="muted">暂无预留邮箱。当前所有邮箱都可以注册。</p>}
         </div>
       </section>
     </main>
