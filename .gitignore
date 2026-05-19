@@ -1,0 +1,56 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Local app/platform state
+.vercel/
+supabase/.temp/
+zhilan-scraper/data/
+zhilan-scraper/logs/
+zhilan-scraper/**/*.pyc
+zhilan-scraper/**/__pycache__/
+zhilan-scraper/.pytest_cache/
+zhilan-scraper/.venv/
+zhilan-app/dist/
+zhilan-app/node_modules/
+zhilan-app/output/
+zhilan-app/src/*.tmp
+zhilan-app/FRONTEND_HANDOFF.md
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Internal planning/config documents - do not publish
+项目配置-请勿外传.md
+SuperIdea-清理确认清单.md
+芝兰点子王-Claude-Design-前端需求.md
+芝兰点子王-Codex交接文档.md
+芝兰点子王-产品方案.md
+芝兰点子王-UI原型-v2.html
+芝兰点子王/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
