@@ -16,6 +16,8 @@ from .clients import BilibiliClient, GitHubDailyClient, TavilyClient, TinyFishCl
 from .deepseek_client import BriefMode, DeepSeekClient
 from .local_store import LocalStore
 from .query_planner import build_global_insight, build_search_plan, filter_and_rank_items
+from .tracking_accounts import DEFAULT_TRACKED_ACCOUNTS
+from .tracking_adapter import collect_account_videos
 from .tools_adapter import build_follow_builders_digest, generate_frontend_slides
 
 
@@ -63,6 +65,11 @@ class FollowBuildersRequest(BaseModel):
     language: str = "zh"
     focus: str = Field(default="AI 产品、AI agent、开发者工具、可给内容团队带来效率提升的想法", max_length=300)
     limitBuilders: int = Field(default=8, ge=3, le=15)
+
+
+class TrackingCollectRequest(BaseModel):
+    account: dict[str, Any]
+    limit: int = Field(default=12, ge=1, le=30)
 
 
 class SearchClient(Protocol):
@@ -266,6 +273,29 @@ def create_app(
     @app.get("/api/daily/latest")
     async def latest_daily() -> dict[str, Any]:
         return await daily_client.latest()
+
+    @app.get("/api/tracking/accounts")
+    async def tracking_accounts() -> dict[str, Any]:
+        return {
+            "items": DEFAULT_TRACKED_ACCOUNTS,
+            "cookieNotes": {
+                "youtube": "official api, no cookie needed",
+                "bilibili": "public search works without cookie first; cookie helps if rate limited",
+                "douyin": "stable latest-account scraping needs login cookie or browser automation",
+                "tiktok": "public search fallback works; logged-in browser is better for latest feed",
+                "xiaohongshu": "stable latest-account scraping needs login cookie or browser automation",
+            },
+        }
+
+    @app.post("/api/tracking/collect")
+    async def tracking_collect(req: TrackingCollectRequest) -> dict[str, Any]:
+        items = await collect_account_videos(
+            req.account,
+            youtube=youtube_client,
+            tinyfish=tinyfish_client,
+            limit=req.limit,
+        )
+        return {"items": items}
 
     @app.post("/api/tools/frontend-slides")
     async def frontend_slides(req: FrontendSlidesRequest) -> dict[str, Any]:

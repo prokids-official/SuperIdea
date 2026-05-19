@@ -54,9 +54,10 @@ import {
   type FrontendSlidesResponse,
   type SlidesStyle,
 } from './lib/toolsApi'
+import { listTrackedAccounts, listTrackedVideos, type TrackedAccount, type TrackedVideo } from './lib/trackingApi'
 import type { Idea, IdeaDraft, User } from './lib/types'
 
-type View = 'home' | 'radar' | 'daily' | 'ideas' | 'tools' | 'admin'
+type View = 'home' | 'radar' | 'daily' | 'ideas' | 'tracking' | 'tools' | 'admin'
 type SortMode = 'hot' | 'views' | 'new'
 type RadarProgress = {
   active: boolean
@@ -477,6 +478,7 @@ function App() {
           }}
         />
       )}
+      {route === 'tracking' && <TrackingPage />}
       {route === 'tools' && <ToolsPage />}
       {route === 'admin' && user.role === 'admin' && <AdminPage />}
       {composerOpen && <IdeaComposer onClose={() => setComposerOpen(false)} onCreate={createIdea} />}
@@ -513,6 +515,7 @@ function FloatingDock({
     { id: 'radar', icon: <Radar size={18} />, label: '内容雷达' },
     { id: 'daily', icon: <Newspaper size={18} />, label: 'AI 日报' },
     { id: 'ideas', icon: <Lightbulb size={18} />, label: '点子市场' },
+    { id: 'tracking', icon: <Clock3 size={18} />, label: '账号追踪' },
     { id: 'tools', icon: <Sparkles size={18} />, label: 'AI 工具' },
   ]
   return (
@@ -831,9 +834,18 @@ function HomePage({
           />
           <EntryCard
             label="MODULE 04"
+            title="账号追踪"
+            desc="固定账号每 3 天同步，自动列出最新更新和 7/30 天热度榜。"
+            meta="YouTube · TikTok · 抖音"
+            accent="violet"
+            icon={<Clock3 size={26} />}
+            onClick={() => setRoute('tracking')}
+          />
+          <EntryCard
+            label="MODULE 05"
             title="AI 工具"
-            desc="爆款拆解、账号追踪、HTML PPT、Builder 周报。"
-            meta="拆解 · 生成 · 追踪"
+            desc="爆款拆解、HTML PPT、Builder 周报，沉淀成小工具工作台。"
+            meta="拆解 · 生成 · 自动化"
             accent="violet"
             icon={<Sparkles size={26} />}
             onClick={() => setRoute('tools')}
@@ -1764,6 +1776,212 @@ function TermGroup({ title, terms, muted = false }: { title: string; terms: stri
       </div>
     </div>
   )
+}
+
+function TrackingPage() {
+  const [accounts, setAccounts] = useState<TrackedAccount[]>([])
+  const [videos, setVideos] = useState<TrackedVideo[]>([])
+  const [windowDays, setWindowDays] = useState<7 | 30>(7)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadTracking() {
+      setLoading(true)
+      setError('')
+      try {
+        const [nextAccounts, nextVideos] = await Promise.all([listTrackedAccounts(), listTrackedVideos(windowDays)])
+        if (!cancelled) {
+          setAccounts(nextAccounts)
+          setVideos(nextVideos)
+        }
+      } catch (trackingError) {
+        if (!cancelled) setError(trackingError instanceof Error ? trackingError.message : '账号追踪读取失败')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadTracking()
+    return () => {
+      cancelled = true
+    }
+  }, [windowDays])
+
+  const grouped = useMemo(() => {
+    return accounts.reduce<Record<string, TrackedAccount[]>>((acc, account) => {
+      acc[account.platform] = [...(acc[account.platform] ?? []), account]
+      return acc
+    }, {})
+  }, [accounts])
+  const checkedCount = accounts.filter((account) => account.lastCheckedAt).length
+  const lastCheckedAt = accounts
+    .map((account) => account.lastCheckedAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1)
+  const topVideos = videos.slice(0, 30)
+
+  return (
+    <main className="zl-page tracking-page">
+      <header className="tracking-hero zl-card">
+        <div>
+          <p className="overline">ACCOUNT TRACKER</p>
+          <h1>固定账号追踪池</h1>
+          <p>每 3 天由本地 worker 同步一次账号主页和搜索线索，沉淀最新更新、7 天热榜、30 天热榜。</p>
+        </div>
+        <div className="tracking-radar" aria-hidden="true">
+          <span />
+          <i />
+          <b>{accounts.length || 17}</b>
+        </div>
+      </header>
+
+      <section className="tracking-kpis">
+        <StatCard label="固定账号" value={String(accounts.length || 17)} detail="YouTube / TikTok / 抖音" />
+        <StatCard label="已同步账号" value={String(checkedCount)} detail={lastCheckedAt ? `最近 ${formatRelativeTime(lastCheckedAt)}` : '等待 worker 首次同步'} />
+        <StatCard label={`${windowDays} 天内容`} value={String(videos.length)} detail="按热度分数重排" />
+      </section>
+
+      <div className="tracking-layout">
+        <aside className="zl-card tracking-accounts">
+          <header>
+            <strong>账号池</strong>
+            <small>第一批固定追踪名单</small>
+          </header>
+          {Object.entries(grouped).map(([platform, items]) => (
+            <section key={platform}>
+              <h3>
+                <span className={`zl-pf ${platform}`}>
+                  <span className="blob" />
+                  {platformLabel(platform)}
+                </span>
+                <em>{items.length}</em>
+              </h3>
+              <div>
+                {items.map((account) => (
+                  <a key={account.id} href={account.homepageUrl || '#'} target="_blank" rel="noreferrer" className="tracked-account-row">
+                    <span>
+                      <b>{account.displayName}</b>
+                      <small>{account.handle || account.category}</small>
+                    </span>
+                    <i>{account.lastCheckedAt ? formatRelativeTime(account.lastCheckedAt) : '未同步'}</i>
+                  </a>
+                ))}
+              </div>
+            </section>
+          ))}
+          {!accounts.length && <p className="muted">账号池会在迁移执行后从 Supabase 读取。当前页面会先保留默认名单。</p>}
+        </aside>
+
+        <section className="tracking-feed">
+          <div className="tracking-toolbar">
+            <div>
+              <strong>热度榜</strong>
+              <span>播放、点赞、评论加权排序</span>
+            </div>
+            <div className="segmented">
+              <button className={windowDays === 7 ? 'is-active' : ''} type="button" onClick={() => setWindowDays(7)}>
+                7 天
+              </button>
+              <button className={windowDays === 30 ? 'is-active' : ''} type="button" onClick={() => setWindowDays(30)}>
+                30 天
+              </button>
+            </div>
+          </div>
+          {error && <p className="inline-error">{error}</p>}
+          {loading ? (
+            <div className="tracking-empty zl-card">
+              <Sparkles size={18} />
+              正在读取账号追踪结果...
+            </div>
+          ) : topVideos.length ? (
+            <div className="tracked-video-list">
+              {topVideos.map((video, index) => (
+                <TrackedVideoCard key={video.id} video={video} rank={index + 1} />
+              ))}
+            </div>
+          ) : (
+            <div className="tracking-empty zl-card">
+              <Clock3 size={18} />
+              <strong>等待本地 worker 首次同步</strong>
+              <p>表结构和账号池已经准备好。worker 运行后会抓 YouTube 官方数据，并用 TinyFish 兜底 TikTok / 抖音公开结果。</p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="tracking-note zl-card">
+        <strong>采集登录态说明</strong>
+        <p>
+          YouTube 使用官方 Data API，不需要 cookie。B站公开搜索第一版可以匿名跑，遇到限流再加 cookie。
+          抖音、TikTok、小红书如果要稳定读取账号主页“最新发布”，后续需要浏览器自动化或登录 cookie；当前版本先用 TinyFish 搜索兜底。
+        </p>
+      </section>
+    </main>
+  )
+}
+
+function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <article className="zl-card tracking-stat">
+      <small>{label}</small>
+      <strong>{value}</strong>
+      <span>{detail}</span>
+    </article>
+  )
+}
+
+function TrackedVideoCard({ video, rank }: { video: TrackedVideo; rank: number }) {
+  return (
+    <article className="zl-card hoverable tracked-video-card">
+      <div className="tracked-rank">{rank}</div>
+      <div className={video.thumbnailUrl ? 'tracked-thumb has-image' : 'tracked-thumb'}>
+        {video.thumbnailUrl && <img src={video.thumbnailUrl} alt="" loading="lazy" />}
+        <Play size={16} />
+      </div>
+      <div className="tracked-video-main">
+        <div className="result-meta">
+          <span className={`zl-pf ${video.platform}`}>
+            <span className="blob" />
+            {platformLabel(video.platform)}
+          </span>
+          <span>{video.accountName}</span>
+          <span>· {formatRelativeTime(video.publishedAt || video.firstSeenAt)}</span>
+          <b>
+            <Flame size={11} />
+            {formatCount(video.hotScore)}
+          </b>
+        </div>
+        <h3>{video.title}</h3>
+        {video.description && <p>{video.description}</p>}
+        <div className="result-stats">
+          <span>
+            <Play size={11} />
+            <b>{formatCount(video.viewCount) || '-'}</b> 播放
+          </span>
+          <span>
+            <Heart size={12} />
+            {formatCount(video.likeCount) || '-'}
+          </span>
+          <span>
+            <MessageCircle size={12} />
+            {formatCount(video.commentCount) || '-'}
+          </span>
+          <span>{video.dataSource || 'local-worker'}</span>
+          <span className="spacer" />
+          <a className="zl-btn ghost sm" href={video.url} target="_blank" rel="noreferrer">
+            打开
+            <ExternalLink size={12} />
+          </a>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function platformLabel(platform: string): string {
+  return platformDefs.find((item) => item.id === platform || item.api === platform)?.name ?? platform
 }
 
 function DailyPage() {
