@@ -20,6 +20,23 @@ export type ContentSearchResponse = {
   items: unknown[]
   elapsedMs?: number
   sourceStatus?: Record<string, string>
+  searchPlan?: {
+    originalQuery?: string
+    intent?: string
+    mustHave?: string[]
+    zhTerms?: string[]
+    enTerms?: string[]
+    topicProbes?: string[]
+    platformQueries?: Record<string, string[]>
+  }
+  insight?: {
+    summary?: string
+    topTopics?: string[]
+    platforms?: Record<string, number>
+    languages?: Record<string, number>
+    avgOpportunity?: number
+    strictGate?: string[]
+  }
 }
 
 type SearchJobRow = {

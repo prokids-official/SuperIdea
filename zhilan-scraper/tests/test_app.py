@@ -139,8 +139,10 @@ class AppTest(unittest.TestCase):
         self.assertIn("aiBrief", body["items"][0])
         self.assertEqual(body["items"][0]["briefSource"], "fetch")
         self.assertEqual([item["platform"] for item in body["items"]], ["web", "tiktok"])
-        self.assertEqual(body["sourceStatus"]["web"], "ok")
-        self.assertEqual(body["sourceStatus"]["tiktok"], "ok")
+        self.assertTrue(body["sourceStatus"]["web"].startswith("ok:"))
+        self.assertTrue(body["sourceStatus"]["tiktok"].startswith("ok:"))
+        self.assertIn("searchPlan", body)
+        self.assertIn("insight", body)
 
     def test_search_uses_youtube_client_when_configured(self):
         client = TestClient(
@@ -163,7 +165,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(body["items"][0]["viewCount"], 123456)
         self.assertEqual(body["items"][0]["aiBrief"]["summary"], "DeepSeek summary")
         self.assertEqual(body["items"][0]["briefModel"], "deepseek")
-        self.assertEqual(body["sourceStatus"]["youtube"], "ok: youtube-api")
+        self.assertTrue(body["sourceStatus"]["youtube"].startswith("ok: youtube-api"))
 
     def test_search_merges_tavily_for_web_results(self):
         client = TestClient(
@@ -183,7 +185,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["items"][0]["dataSource"], "tavily")
-        self.assertEqual(body["sourceStatus"]["web"], "ok: tavily+tinyfish")
+        self.assertTrue(body["sourceStatus"]["web"].startswith("ok: tavily+tinyfish"))
 
     def test_search_continues_when_one_platform_fails(self):
         client = TestClient(
@@ -202,9 +204,9 @@ class AppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(len(body["items"]), 2)
-        self.assertEqual(body["sourceStatus"]["youtube"], "ok")
+        self.assertTrue(body["sourceStatus"]["youtube"].startswith("ok:"))
         self.assertTrue(body["sourceStatus"]["douyin"].startswith("error:"))
-        self.assertEqual(body["sourceStatus"]["web"], "ok")
+        self.assertTrue(body["sourceStatus"]["web"].startswith("ok:"))
 
     def test_daily_latest_returns_normalized_issue(self):
         client = TestClient(

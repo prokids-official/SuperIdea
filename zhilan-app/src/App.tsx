@@ -80,6 +80,19 @@ type ContentItem = {
   trend: string
   hue: number
   url: string
+  thumbnailUrl?: string
+  language: 'zh' | 'en' | 'unknown'
+  contentType: string
+  topicTags: string[]
+  aiSignals: string[]
+  negativeSignals: string[]
+  relevanceScore: number
+  freshnessScore: number
+  trendScore: number
+  aiConfidence: number
+  opportunityScore: number
+  passesAiStoryGate: boolean
+  rankReason: string
   brief: {
     summary: string
     hook: string
@@ -102,6 +115,19 @@ type ApiContentItem = {
   duration?: string
   dataSource?: string
   briefModel?: string
+  thumbnailUrl?: string
+  language?: 'zh' | 'en' | 'unknown'
+  contentType?: string
+  topicTags?: string[]
+  aiSignals?: string[]
+  negativeSignals?: string[]
+  relevanceScore?: number
+  freshnessScore?: number
+  trendScore?: number
+  aiConfidence?: number
+  opportunityScore?: number
+  passesAiStoryGate?: boolean
+  rankReason?: string
   aiBrief?: {
     summary: string
     hook: string
@@ -116,6 +142,23 @@ type RadarState = {
   error: string
   results: ContentItem[]
   sourceStatus: Record<string, string>
+  searchPlan?: {
+    originalQuery?: string
+    intent?: string
+    mustHave?: string[]
+    zhTerms?: string[]
+    enTerms?: string[]
+    topicProbes?: string[]
+    platformQueries?: Record<string, string[]>
+  }
+  insight?: {
+    summary?: string
+    topTopics?: string[]
+    platforms?: Record<string, number>
+    languages?: Record<string, number>
+    avgOpportunity?: number
+    strictGate?: string[]
+  }
   progress: RadarProgress
 }
 
@@ -150,6 +193,18 @@ const seedResults: ContentItem[] = [
       learn: '可以保留儿童友好的角色关系，但把开头做得更像悬念短片。',
       risk: '部分画面偏暗，3-6 岁人群需要二次评估惊吓感。',
     },
+    language: 'zh',
+    contentType: 'story',
+    topicTags: ['fairy tale', 'twist'],
+    aiSignals: ['ai', 'ai动画'],
+    negativeSignals: [],
+    relevanceScore: 92,
+    freshnessScore: 86,
+    trendScore: 96,
+    aiConfidence: 94,
+    opportunityScore: 93,
+    passesAiStoryGate: true,
+    rankReason: 'ai + 童话; twist; trend 96, freshness 86',
   },
   {
     id: 'seed-bili',
@@ -171,6 +226,18 @@ const seedResults: ContentItem[] = [
       learn: '贝瓦童话 IP 可以借这种群像结构做合集预告。',
       risk: '节奏偏快，低龄用户可能跟不上，需要慢速版本。',
     },
+    language: 'zh',
+    contentType: 'series',
+    topicTags: ['fairy tale', 'series'],
+    aiSignals: ['ai', 'ai动画'],
+    negativeSignals: [],
+    relevanceScore: 88,
+    freshnessScore: 76,
+    trendScore: 82,
+    aiConfidence: 88,
+    opportunityScore: 84,
+    passesAiStoryGate: true,
+    rankReason: 'ai + 剧集; fairy tale; trend 82, freshness 76',
   },
   {
     id: 'seed-douyin',
@@ -192,6 +259,18 @@ const seedResults: ContentItem[] = [
       learn: '适合拆成睡前 3 分钟系列，强化安全感和重复栏目感。',
       risk: '同质化严重，需要更强的系列识别符号。',
     },
+    language: 'zh',
+    contentType: 'story',
+    topicTags: ['children', 'series'],
+    aiSignals: ['ai', 'ai动画'],
+    negativeSignals: [],
+    relevanceScore: 86,
+    freshnessScore: 94,
+    trendScore: 98,
+    aiConfidence: 86,
+    opportunityScore: 91,
+    passesAiStoryGate: true,
+    rankReason: 'ai + 睡前故事; children; trend 98, freshness 94',
   },
 ]
 
@@ -1292,12 +1371,24 @@ function RadarPage({
   const [sort, setSort] = useState<SortMode>('hot')
   const [range, setRange] = useState('7d')
   const [expanded, setExpanded] = useState('seed-youtube')
-  const { loading, error, results, sourceStatus, progress } = radarState
+  const [languageFilter, setLanguageFilter] = useState<'all' | 'zh' | 'en'>('all')
+  const [strictAiOnly, setStrictAiOnly] = useState(true)
+  const [minOpportunity, setMinOpportunity] = useState(50)
+  const { loading, error, results, sourceStatus, progress, searchPlan, insight } = radarState
 
   const selectedApis = useMemo(() => {
     return platformDefs.filter((item) => platforms[item.id]).map((item) => item.api)
   }, [platforms])
   const activePlatformCount = useMemo(() => platformDefs.filter((item) => platforms[item.id]).length, [platforms])
+  const filteredResults = useMemo(() => {
+    return results.filter((item) => {
+      if (strictAiOnly && !item.passesAiStoryGate) return false
+      if (languageFilter !== 'all' && item.language !== languageFilter) return false
+      if (item.opportunityScore < minOpportunity) return false
+      return true
+    })
+  }, [languageFilter, minOpportunity, results, strictAiOnly])
+  const radarInsight = insight ?? buildLocalRadarInsight(results)
 
   const runSearch = async () => {
     const startedAt = Date.now()
@@ -1334,6 +1425,8 @@ function RadarPage({
         error: '',
         results: nextResults,
         sourceStatus: body.sourceStatus ?? {},
+        searchPlan: body.searchPlan,
+        insight: body.insight,
         progress: {
           active: false,
           percent: 100,
@@ -1430,9 +1523,25 @@ function RadarPage({
             </div>
           </FilterBlock>
           <FilterBlock title="结果偏好">
-            <CheckRow label="过滤儿童不友好" defaultChecked />
-            <CheckRow label="只看 AI 生成内容" />
-            <CheckRow label="忽略已收藏" />
+            <button className={strictAiOnly ? 'check-row is-active' : 'check-row'} type="button" onClick={() => setStrictAiOnly(!strictAiOnly)}>
+              <span className={strictAiOnly ? 'checkbox is-checked' : 'checkbox'}>{strictAiOnly && <Check size={10} />}</span>
+              只看 AI 生成内容
+            </button>
+            <label className="range-slider-row">
+              <span>机会分 ≥ {minOpportunity}</span>
+              <input min="0" max="90" step="10" type="range" value={minOpportunity} onChange={(event) => setMinOpportunity(Number(event.target.value))} />
+            </label>
+            <div className="range-grid compact">
+              {[
+                ['all', '全部'],
+                ['zh', '中文'],
+                ['en', '英文'],
+              ].map(([id, label]) => (
+                <button className={languageFilter === id ? 'is-active' : ''} key={id} type="button" onClick={() => setLanguageFilter(id as 'all' | 'zh' | 'en')}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </FilterBlock>
         </aside>
 
@@ -1465,9 +1574,11 @@ function RadarPage({
             query={query || 'AI 漫剧'}
             progress={progress.percent}
             loading={loading}
-            resultsCount={results.length}
+            resultsCount={filteredResults.length}
             activePlatforms={activePlatformCount}
           />
+
+          <SearchPlanPanel query={query || 'AI 漫剧'} searchPlan={searchPlan} insight={radarInsight} />
 
           <div className="zl-card ai-overview">
             <div>
@@ -1475,11 +1586,23 @@ function RadarPage({
                 <Sparkles size={14} />
               </span>
               <strong>AI 全局解读</strong>
-              <small>{Object.keys(sourceStatus).length ? '本地采集服务已接入' : '当前展示模拟数据，可点击情报刷新'}</small>
+              <small>{Object.keys(sourceStatus).length ? '已启用严格 AI 内容门槛' : '当前展示样例数据，可点击情报刷新'}</small>
             </div>
-            <p>
-              TinyFish Search / Fetch 已经作为主链路接入。当前搜索会优先返回网页和 TikTok 相关发现，B站、抖音、YouTube 深度字段会继续接本地专项脚本。
-            </p>
+            <p>{radarInsight.summary}</p>
+            <div className="insight-strip">
+              <span>
+                <b>{radarInsight.avgOpportunity ?? 0}</b>
+                平均机会分
+              </span>
+              <span>
+                <b>{radarInsight.topTopics?.[0] ?? 'AI story'}</b>
+                主要题材簇
+              </span>
+              <span>
+                <b>{filteredResults.length}/{results.length}</b>
+                通过当前筛选
+              </span>
+            </div>
             {error && <p className="inline-error">{error}</p>}
             {(loading || progress.percent > 0) && (
               <div className={loading ? 'radar-progress is-active' : 'radar-progress'}>
@@ -1511,7 +1634,7 @@ function RadarPage({
           <div className="result-list zl-stagger">
             {loading
               ? [0, 1, 2].map((item) => <ResultSkeleton key={item} />)
-              : results.map((result) => (
+              : filteredResults.map((result) => (
                   <ResultCard
                     key={result.id}
                     result={result}
@@ -1519,10 +1642,77 @@ function RadarPage({
                     onToggle={() => setExpanded(expanded === result.id ? '' : result.id)}
                   />
                 ))}
+            {!loading && !filteredResults.length && (
+              <div className="zl-card empty-radar">
+                <Sparkles size={18} />
+                <strong>没有结果通过当前 AI 严格筛选</strong>
+                <p>可以把机会分阈值调低，或改成 30 天范围；但主结果仍会优先保证“AI 制作 + 动画/短剧/故事”相关。</p>
+              </div>
+            )}
           </div>
         </section>
       </div>
     </main>
+  )
+}
+
+function SearchPlanPanel({
+  query,
+  searchPlan,
+  insight,
+}: {
+  query: string
+  searchPlan?: RadarState['searchPlan']
+  insight: NonNullable<RadarState['insight']>
+}) {
+  const zhTerms = searchPlan?.zhTerms?.length ? searchPlan.zhTerms.slice(0, 5) : [query, 'AI 动画短剧', 'AI 生成动画']
+  const enTerms = searchPlan?.enTerms?.length ? searchPlan.enTerms.slice(0, 5) : ['AI animated series', 'AI generated animation', 'cinematic AI animation']
+  const probes = searchPlan?.topicProbes?.slice(0, 5) ?? ['AI zombie animation', 'AI fairy tale animation', 'AI animated story twist']
+
+  return (
+    <section className="radar-intel-grid">
+      <article className="zl-card search-plan-card">
+        <header>
+          <div>
+            <strong>搜索计划</strong>
+            <small>先锁定 AI 生成内容，再扩展中英文线索</small>
+          </div>
+          <span>{searchPlan?.intent === 'ai_story_video' ? 'AI STORY GATE' : 'GENERAL'}</span>
+        </header>
+        <div className="term-groups">
+          <TermGroup title="中文主线" terms={zhTerms} />
+          <TermGroup title="英文主线" terms={enTerms} />
+          <TermGroup title="题材探针" terms={probes} muted />
+        </div>
+      </article>
+      <article className="zl-card trend-map-card">
+        <header>
+          <strong>题材聚类</strong>
+          <small>结果会按机会分重排，普通动画和教程会被压低或过滤</small>
+        </header>
+        <div className="topic-orbit">
+          {(insight.topTopics?.length ? insight.topTopics : ['ai story', 'cinematic', 'series']).slice(0, 4).map((topic, index) => (
+            <span className={`topic-node n${index + 1}`} key={topic}>
+              {topic}
+            </span>
+          ))}
+          <b>{insight.avgOpportunity ?? 0}</b>
+        </div>
+      </article>
+    </section>
+  )
+}
+
+function TermGroup({ title, terms, muted = false }: { title: string; terms: string[]; muted?: boolean }) {
+  return (
+    <div className={muted ? 'term-group is-muted' : 'term-group'}>
+      <b>{title}</b>
+      <div>
+        {terms.map((term) => (
+          <span key={term}>{term}</span>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -2116,6 +2306,19 @@ function toContentItem(item: ApiContentItem, index: number): ContentItem {
     trend: item.dataSource === 'youtube-api' ? '官方数据' : item.briefModel === 'deepseek' ? 'AI 分析' : '新发现',
     hue: item.platform === 'tiktok' ? 350 : 218,
     url: item.url,
+    thumbnailUrl: item.thumbnailUrl,
+    language: item.language ?? detectLanguage(`${item.title} ${item.description ?? ''}`),
+    contentType: item.contentType ?? 'animation',
+    topicTags: item.topicTags?.length ? item.topicTags : ['ai story'],
+    aiSignals: item.aiSignals ?? [],
+    negativeSignals: item.negativeSignals ?? [],
+    relevanceScore: item.relevanceScore ?? 50,
+    freshnessScore: item.freshnessScore ?? 50,
+    trendScore: item.trendScore ?? 50,
+    aiConfidence: item.aiConfidence ?? 50,
+    opportunityScore: item.opportunityScore ?? 50,
+    passesAiStoryGate: item.passesAiStoryGate ?? true,
+    rankReason: item.rankReason ?? 'AI 相关结果，等待更深数据验证',
     brief: {
       summary: item.aiBrief?.summary || item.description || 'TinyFish Search 已返回相关页面，可继续 Fetch 正文做深度分析。',
       hook: item.aiBrief?.hook || '搜索结果和标题已能作为初步选题判断，下一步会补充正文和视频元数据。',
@@ -2123,6 +2326,38 @@ function toContentItem(item: ApiContentItem, index: number): ContentItem {
       risk: item.aiBrief?.risk || '当前仍基于搜索片段，需要正文、视频数据或评论样本进一步验证。',
     },
   }
+}
+
+function buildLocalRadarInsight(results: ContentItem[]): NonNullable<RadarState['insight']> {
+  const topicCount = new Map<string, number>()
+  const platformCount = new Map<string, number>()
+  const languageCount = new Map<string, number>()
+  results.forEach((item) => {
+    platformCount.set(item.platform, (platformCount.get(item.platform) ?? 0) + 1)
+    languageCount.set(item.language, (languageCount.get(item.language) ?? 0) + 1)
+    item.topicTags.forEach((tag) => topicCount.set(tag, (topicCount.get(tag) ?? 0) + 1))
+  })
+  const topTopics = Array.from(topicCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([topic]) => topic)
+  const avgOpportunity = results.length ? Math.round(results.reduce((sum, item) => sum + item.opportunityScore, 0) / results.length) : 0
+  return {
+    summary: results.length
+      ? `当前结果优先保留带有 AI 制作信号的动画/短剧/故事内容，主要题材集中在 ${topTopics.join('、') || 'AI story'}。`
+      : '还没有搜索结果。点击情报刷新后，会先做中英文扩展，再用 AI 内容门槛过滤。',
+    topTopics,
+    platforms: Object.fromEntries(platformCount),
+    languages: Object.fromEntries(languageCount),
+    avgOpportunity,
+    strictGate: ['AI/generative signal', 'story/video/animation signal'],
+  }
+}
+
+function detectLanguage(text: string): 'zh' | 'en' | 'unknown' {
+  if (/[\u4e00-\u9fff]/.test(text)) return 'zh'
+  if (/[a-z]/i.test(text)) return 'en'
+  return 'unknown'
 }
 
 function formatCount(value?: number): string {
@@ -2232,20 +2467,11 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   )
 }
 
-function CheckRow({ label, defaultChecked = false }: { label: string; defaultChecked?: boolean }) {
-  const [checked, setChecked] = useState(defaultChecked)
-  return (
-    <button className="check-row" type="button" onClick={() => setChecked(!checked)}>
-      <span className={checked ? 'checkbox is-checked' : 'checkbox'}>{checked && <Check size={10} />}</span>
-      {label}
-    </button>
-  )
-}
-
 function ResultCard({ result, expanded, onToggle }: { result: ContentItem; expanded: boolean; onToggle: () => void }) {
   return (
     <article className="zl-card hoverable result-card">
-      <div className="thumb" style={{ '--thumb-hue': result.hue } as React.CSSProperties}>
+      <div className={result.thumbnailUrl ? 'thumb has-image' : 'thumb'} style={{ '--thumb-hue': result.hue } as React.CSSProperties}>
+        {result.thumbnailUrl && <img src={result.thumbnailUrl} alt="" loading="lazy" />}
         <Play size={18} />
         <span>{result.duration}</span>
       </div>
@@ -2259,10 +2485,20 @@ function ResultCard({ result, expanded, onToggle }: { result: ContentItem; expan
           <span>· {result.time}</span>
           <b>
             <TrendingUp size={11} />
-            {result.trend}
+            机会 {result.opportunityScore}
           </b>
         </div>
         <h3>{result.title}</h3>
+        <div className="result-signal-row">
+          <span className={result.passesAiStoryGate ? 'signal-pill strong' : 'signal-pill weak'}>{result.passesAiStoryGate ? 'AI 内容确认' : 'AI 信号偏弱'}</span>
+          <span className="signal-pill">{result.language === 'zh' ? '中文' : result.language === 'en' ? '英文' : '未知语言'}</span>
+          <span className="signal-pill">{result.contentType}</span>
+          {result.topicTags.slice(0, 3).map((tag) => (
+            <span className="signal-pill muted" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
         <div className="result-stats">
           <span>
             <Play size={11} />
@@ -2292,16 +2528,35 @@ function ResultCard({ result, expanded, onToggle }: { result: ContentItem; expan
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button>
         </div>
+        <div className="score-lanes">
+          <ScoreLane label="相关" value={result.relevanceScore} />
+          <ScoreLane label="AI" value={result.aiConfidence} />
+          <ScoreLane label="热度" value={result.trendScore} />
+          <ScoreLane label="新鲜" value={result.freshnessScore} />
+        </div>
         <div className={expanded ? 'ai-brief is-open' : 'ai-brief'}>
           <div>
             <BriefField tone={218} label="摘要" text={result.brief.summary} icon={<Sparkles size={12} />} />
             <BriefField tone={18} label="爆点" text={result.brief.hook} icon={<Flame size={12} />} />
             <BriefField tone={78} label="借鉴" text={result.brief.learn} icon={<Lightbulb size={12} />} />
             <BriefField tone={355} label="风险" text={result.brief.risk} icon={<Sparkles size={12} />} />
+            <BriefField tone={260} label="排序理由" text={result.rankReason} icon={<Radar size={12} />} />
           </div>
         </div>
       </div>
     </article>
+  )
+}
+
+function ScoreLane({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="score-lane">
+      <small>{label}</small>
+      <i>
+        <b style={{ width: `${Math.max(4, Math.min(100, value))}%` }} />
+      </i>
+      <em>{value}</em>
+    </span>
   )
 }
 

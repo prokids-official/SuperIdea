@@ -15,6 +15,7 @@ from .brief_adapter import build_ai_brief
 from .clients import BilibiliClient, GitHubDailyClient, TavilyClient, TinyFishClient, YouTubeClient
 from .deepseek_client import BriefMode, DeepSeekClient
 from .local_store import LocalStore
+from .query_planner import build_global_insight, build_search_plan, filter_and_rank_items
 from .tools_adapter import build_follow_builders_digest, generate_frontend_slides
 
 
@@ -170,52 +171,52 @@ def create_app(
     @app.post("/api/search")
     async def search(req: SearchRequest) -> dict[str, Any]:
         started = time.perf_counter()
-        items: list[dict[str, Any]] = []
+        raw_items: list[dict[str, Any]] = []
         source_status: dict[str, str] = {}
+        search_plan = build_search_plan(req.query, list(req.platforms))
 
         async def search_platform(platform: Platform) -> tuple[str, list[dict[str, Any]], str]:
+            platform_queries = search_plan["platformQueries"].get(platform, [req.query])
+            per_query_limit = max(5, min(12, req.limit))
+            collected: list[dict[str, Any]] = []
             try:
-                if platform == "youtube" and youtube_client.configured:
-                    platform_items = await youtube_client.search(req.query, req.sort, req.timeRange, req.limit)
-                    status = "ok: youtube-api" if platform_items else "empty: youtube-api"
-                    return platform, platform_items[: req.limit], status
+                for platform_query in platform_queries:
+                    if platform == "youtube" and youtube_client.configured:
+                        collected.extend(await youtube_client.search(platform_query, req.sort, req.timeRange, per_query_limit))
+                        continue
 
-                if platform == "bilibili" and bilibili_client.configured:
-                    platform_items = await bilibili_client.search(req.query, req.sort, req.timeRange, req.limit)
-                    status = "ok: bilibili-web-api" if platform_items else "empty: bilibili-web-api"
-                    return platform, platform_items[: req.limit], status
+                    if platform == "bilibili" and bilibili_client.configured:
+                        collected.extend(await bilibili_client.search(platform_query, req.sort, req.timeRange, per_query_limit))
+                        continue
 
-                if platform == "web" and tavily_client.configured:
-                    tavily_items = await tavily_client.search(req.query, req.timeRange, max(5, req.limit // 2))
-                    tinyfish_items = await tinyfish_client.search(req.query, platform)
-                    platform_items = _dedupe_by_url([*tavily_items, *tinyfish_items])
-                    sources = []
-                    if tavily_items:
-                        sources.append("tavily")
-                    if tinyfish_items:
-                        sources.append("tinyfish")
-                    status = f"ok: {'+'.join(sources)}" if platform_items else "empty"
-                    return platform, platform_items[: req.limit], status
+                    if platform == "web" and tavily_client.configured:
+                        tavily_items = await tavily_client.search(platform_query, req.timeRange, max(5, req.limit // 2))
+                        tinyfish_items = await tinyfish_client.search(platform_query, platform)
+                        collected.extend([*tavily_items, *tinyfish_items])
+                        continue
 
-                platform_items = await tinyfish_client.search(req.query, platform)
+                    collected.extend(await tinyfish_client.search(platform_query, platform))
             except httpx.HTTPError as exc:
                 return platform, [], f"error: {exc.__class__.__name__}"
-            return platform, platform_items[: req.limit], "ok" if platform_items else "empty"
+
+            platform_items = filter_and_rank_items(_dedupe_by_url(collected), req.query, req.sort, req.limit)
+            if platform == "youtube" and youtube_client.configured:
+                source = "youtube-api"
+            elif platform == "bilibili" and bilibili_client.configured:
+                source = "bilibili-web-api"
+            elif platform == "web" and tavily_client.configured:
+                source = "tavily+tinyfish"
+            else:
+                source = "tinyfish"
+            status = f"ok: {source} · {len(platform_queries)} queries · {len(platform_items)} ai-matched" if platform_items else f"empty: {source} · strict-ai-filter"
+            return platform, platform_items, status
 
         platform_results = await asyncio.gather(*(search_platform(platform) for platform in req.platforms))
-        platform_batches = []
         for platform, platform_items, status in platform_results:
-            platform_batches.append(platform_items)
+            raw_items.extend(platform_items)
             source_status[platform] = status
 
-        for index in range(req.limit):
-            for batch in platform_batches:
-                if len(items) >= req.limit:
-                    break
-                if index < len(batch):
-                    items.append(batch[index])
-            if len(items) >= req.limit:
-                break
+        items = filter_and_rank_items(raw_items, req.query, req.sort, req.limit)
         fetched_pages: dict[str, str] = {}
         if req.includeAiBrief and req.fetchTop:
             urls = [item["url"] for item in items[: req.fetchTop] if item.get("url")]
@@ -253,6 +254,8 @@ def create_app(
             "items": items,
             "elapsedMs": round((time.perf_counter() - started) * 1000),
             "sourceStatus": source_status,
+            "searchPlan": search_plan,
+            "insight": build_global_insight(items, search_plan),
         }
 
     @app.post("/api/fetch")
