@@ -16,6 +16,7 @@ import {
   Home,
   Lightbulb,
   Link,
+  LogOut,
   LockKeyhole,
   MessageCircle,
   Moon,
@@ -29,6 +30,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import './App.css'
+import './theme-v2.css'
 import {
   addSignupAllowlistEmail,
   addIdeaComment,
@@ -38,6 +40,7 @@ import {
   listSignupAllowlist,
   getCurrentUser,
   login as loginAccount,
+  logout as logoutAccount,
   removeSignupAllowlistEmail,
   signup as signupAccount,
   toggleIdeaReaction,
@@ -414,6 +417,14 @@ function App() {
     }
   }
 
+  const logout = async () => {
+    await logoutAccount()
+    setUser(null)
+    setRoute('home')
+    setComposerOpen(false)
+    setLoginError('')
+  }
+
   const createIdea = async (draft: IdeaDraft) => {
     if (!user) return
     const idea = await createIdeaRecord(draft, user)
@@ -462,6 +473,10 @@ function App() {
         <div className="zl-avatar" title={user.name}>
           {user.avatar}
         </div>
+        <button className="zl-btn ghost sm logout-button" type="button" onClick={logout}>
+          <LogOut size={14} />
+          退出
+        </button>
       </nav>
 
       {route === 'home' && <HomePage query={query} setQuery={setQuery} setRoute={setRoute} />}
@@ -765,6 +780,78 @@ function LoginScreen({
   )
 }
 
+function Reveal({ children, delay = 0, as = 'div', className, stagger = false }: { children: ReactNode; delay?: number; as?: 'div' | 'section' | 'header'; className?: string; stagger?: boolean }) {
+  const ref = useRef<HTMLElement | null>(null)
+  const [shown, setShown] = useState(false)
+  const setNode = (node: HTMLElement | null) => {
+    ref.current = node
+  }
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      window.setTimeout(() => setShown(true), delay)
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            window.setTimeout(() => setShown(true), delay)
+            io.disconnect()
+            break
+          }
+        }
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -60px 0px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [delay])
+  const cls = [stagger ? 'zl-reveal-stagger' : 'zl-reveal', shown ? 'in' : '', className].filter(Boolean).join(' ')
+  if (as === 'section') return <section ref={setNode} className={cls}>{children}</section>
+  if (as === 'header') return <header ref={setNode} className={cls}>{children}</header>
+  return <div ref={setNode} className={cls}>{children}</div>
+}
+
+function useCountUp(target: number, options: { duration?: number; decimals?: number; format?: (n: number) => string } = {}) {
+  const { duration = 1600, decimals = 0, format } = options
+  const ref = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      el.textContent = format ? format(target) : target.toFixed(decimals)
+      return
+    }
+    let started = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !started) {
+            started = true
+            const startAt = performance.now()
+            const tick = (t: number) => {
+              const p = Math.min(1, (t - startAt) / duration)
+              const eased = 1 - Math.pow(1 - p, 3)
+              const v = target * eased
+              el.textContent = format ? format(v) : v.toFixed(decimals)
+              if (p < 1) requestAnimationFrame(tick)
+            }
+            requestAnimationFrame(tick)
+            io.disconnect()
+            break
+          }
+        }
+      },
+      { threshold: 0.4 }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [target, duration, decimals, format])
+  return ref
+}
+
 function HomePage({
   query,
   setQuery,
@@ -779,14 +866,24 @@ function HomePage({
     setRoute('radar')
   }
 
+  // Mouse-light follow effect on cards
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      const card = target?.closest('.entry-card, .kpi-card, .zl-card.status-card, .status-card') as HTMLElement | null
+      if (!card) return
+      const r = card.getBoundingClientRect()
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`)
+      card.style.setProperty('--my', `${e.clientY - r.top}px`)
+    }
+    window.addEventListener('mousemove', handler, { passive: true })
+    return () => window.removeEventListener('mousemove', handler)
+  }, [])
+
   return (
     <div className="home-page">
-      <div className="zl-aurora">
-        <div className="zl-aurora-3" />
-      </div>
-      <div className="zl-grid-bg" />
-      <main className="zl-page zl-stagger">
-        <header className="home-hero">
+      <main className="zl-page">
+        <header className="home-hero zl-hero-in">
           <div className="zl-glass status-pill">
             <span className="pulse-dot" />
             <span>
@@ -798,13 +895,13 @@ function HomePage({
           <h1>
             一眼看清市场
             <br />
-            <span className="zl-grad-text">一秒沉淀点子</span>
+            <span className="zl-grad-text">一秒沉淀点子。</span>
           </h1>
           <p>为贝瓦儿歌 · 芝兰玉树内容团队打造的工作台。内容情报、AI 日报、选题点子，全部在这里。</p>
           <SearchHero value={query} onChange={setQuery} onSubmit={submit} />
         </header>
 
-        <section className="entry-grid">
+        <Reveal as="section" className="entry-grid" stagger>
           <EntryCard
             label="MODULE 01"
             title="内容雷达"
@@ -850,26 +947,26 @@ function HomePage({
             icon={<Sparkles size={26} />}
             onClick={() => setRoute('tools')}
           />
-        </section>
+        </Reveal>
 
-        <section className="home-section">
+        <Reveal as="section" className="home-section">
           <SectionTitle title="本周脉搏" subtitle="一眼看清平台、点子和情报节奏" />
-          <div className="kpi-row">
+          <Reveal className="kpi-row" stagger>
             <KpiCard label="内容雷达搜索" value="1,284" delta="+18.4%" color="218" spark={[12, 18, 15, 22, 28, 24, 32, 38, 42, 36, 48, 54]} />
             <KpiCard label="点子市场新增" value="46" delta="+6 本周" color="280" spark={[2, 4, 3, 6, 5, 8, 7, 9, 10, 12, 11, 14]} />
             <KpiCard label="AI 日报阅读" value="312" delta="+12.1%" color="160" spark={[20, 24, 22, 28, 26, 30, 34, 32, 38, 36, 42, 44]} />
             <KpiCard label="平均响应" value="0.8s" delta="-32ms" color="12" down spark={[28, 24, 26, 22, 20, 18, 19, 16, 14, 13, 12, 10]} />
-          </div>
-        </section>
+          </Reveal>
+        </Reveal>
 
-        <section className="home-section">
+        <Reveal as="section" className="home-section">
           <SectionTitle title="今日状态" subtitle="真实接口已经开始接入" />
-          <div className="status-grid">
+          <Reveal className="status-grid" stagger>
             <StatusCard title="TinyFish Search" value="已验证" detail="AI 漫剧搜索可返回结构化结果" icon={<Search size={18} />} />
             <StatusCard title="TinyFish Fetch" value="已验证" detail="网页可转干净 Markdown" icon={<FileIcon />} />
             <StatusCard title="GitHub 日报" value="已验证" detail="最新 issue 可读取" icon={<CalendarDays size={18} />} />
-          </div>
-        </section>
+          </Reveal>
+        </Reveal>
       </main>
     </div>
   )
@@ -901,10 +998,22 @@ function KpiCard({
     })
     .join(' ')
   const gradId = `spark-${label.replace(/\s+/g, '')}`
+  // Parse leading number from value like "1,284" / "46" / "0.8s" / "312"
+  const numMatch = value.match(/^([\d,]*\.?\d+)(.*)$/)
+  const numericTarget = numMatch ? parseFloat(numMatch[1].replace(/,/g, '')) : 0
+  const suffix = numMatch ? numMatch[2] : ''
+  const hasComma = value.includes(',')
+  const hasDecimal = numMatch ? numMatch[1].includes('.') : false
+  const formatNum = (n: number) => {
+    if (hasDecimal) return n.toFixed(1) + suffix
+    const rounded = Math.round(n)
+    return (hasComma ? rounded.toLocaleString() : String(rounded)) + suffix
+  }
+  const numRef = useCountUp(numericTarget, { duration: 1500, format: formatNum })
   return (
     <article className="kpi-card">
       <small>{label}</small>
-      <strong>{value}</strong>
+      <strong ref={numRef as never}>{numericTarget ? formatNum(0) : value}</strong>
       <em className={down ? 'down' : ''}>
         {down ? <TrendingUp size={11} style={{ transform: 'scaleY(-1)' }} /> : <TrendingUp size={11} />}
         {delta}
@@ -2198,7 +2307,10 @@ function DailyPage() {
             {daily ? `${daily.date} 已更新` : loading ? '正在读取今日日报' : '等待同步'}
           </span>
           <h1>{daily ? `AI 日报 ${daily.date}` : 'AI 最新日报'}</h1>
-          <p>给内容、工具和选题团队看的每日 AI 速览。先看表格，再读正文。</p>
+          <p>
+            给内容、工具和选题团队看的每日 AI 速览。先看表格，再读正文。
+            {daily?.updatedAt && <span> 数据同步于 {formatShortDateTime(daily.updatedAt)}</span>}
+          </p>
         </header>
 
         {error && <p className="inline-error">{error}</p>}
@@ -3134,7 +3246,6 @@ function IdeaCard({
         <div className={expanded ? 'market-check is-open' : 'market-check'}>
           <div>
             <header>
-              <strong>市场反查结果</strong>
               <button className="zl-btn ghost sm" type="button" onClick={() => onOpenRadar(idea.title)}>
                 去内容雷达
                 <ArrowRight size={12} />
@@ -3231,6 +3342,3 @@ function FileIcon() {
 }
 
 export default App
-
-
-

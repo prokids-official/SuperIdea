@@ -18,6 +18,7 @@ export type DailyIssueRecord = {
   contentMarkdown: string
   url: string
   source: string
+  updatedAt?: string
   summary?: DailySummary
   tags?: string[]
 }
@@ -30,6 +31,7 @@ type DailyRow = {
   content_markdown: string
   url: string
   source: string
+  updated_at?: string | null
   summary?: DailySummary | null
   relevance_tags?: string[] | null
 }
@@ -38,8 +40,9 @@ export async function listDailyIssues(limit = 10): Promise<DailyIssueRecord[]> {
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase
       .from('ai_daily_issues')
-      .select('id,issue_number,title,issue_date,content_markdown,url,source,summary,relevance_tags')
+      .select('id,issue_number,title,issue_date,content_markdown,url,source,summary,relevance_tags,updated_at')
       .order('issue_date', { ascending: false })
+      .order('issue_number', { ascending: false })
       .limit(limit)
     if (error) throw new Error(error.message)
     return (data ?? []).map(fromDailyRow)
@@ -53,8 +56,9 @@ export async function fetchLatestDaily(): Promise<DailyIssueRecord | null> {
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase
       .from('ai_daily_issues')
-      .select('id,issue_number,title,issue_date,content_markdown,url,source,summary,relevance_tags')
+      .select('id,issue_number,title,issue_date,content_markdown,url,source,summary,relevance_tags,updated_at')
       .order('issue_date', { ascending: false })
+      .order('issue_number', { ascending: false })
       .limit(1)
       .maybeSingle()
     if (error) throw new Error(error.message)
@@ -71,6 +75,7 @@ export async function fetchLatestDaily(): Promise<DailyIssueRecord | null> {
     contentMarkdown: body.contentMarkdown,
     url: body.url,
     source: body.source,
+    updatedAt: body.updatedAt,
   }
 }
 
@@ -83,6 +88,7 @@ function fromDailyRow(row: DailyRow): DailyIssueRecord {
     contentMarkdown: row.content_markdown,
     url: row.url,
     source: row.source,
+    updatedAt: row.updated_at ?? undefined,
     summary: row.summary ?? undefined,
     tags: row.relevance_tags ?? undefined,
   }

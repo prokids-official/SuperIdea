@@ -22,9 +22,11 @@ zhilan-scraper/**/__pycache__/
 zhilan-scraper/.pytest_cache/
 zhilan-scraper/.venv/
 zhilan-app/dist/
+zhilan-app/dist-v*/
 zhilan-app/node_modules/
 zhilan-app/output/
 zhilan-app/src/*.tmp
+zhilan-app/src/*.clean
 zhilan-app/FRONTEND_HANDOFF.md
 
 # Logs
